@@ -33,9 +33,12 @@ def make_measurement_perfect_data(img,max_radius):
     return meassurements
 
 
-
+'''
+Calculates position of a point from a distance and a bearing
+'''
 def calculate_destination_point(latitude, longitude, bearing, distance):
-    R = 6371  # Radius of the Earth in kilometers
+    R = 6378137  # Radius of the Earth in meters
+    b = 6356752.3142 
 
     # Convert latitude and longitude to radians
     lat_rad = math.radians(latitude)
@@ -44,26 +47,24 @@ def calculate_destination_point(latitude, longitude, bearing, distance):
     # Convert bearing to radians
     bearing_rad = math.radians(bearing)
 
-    # Convert distance to kilometers
-    distance_km = distance / 1000
-
     # Calculate the change in latitude
-    lat_change = math.asin(math.sin(lat_rad) * math.cos(distance_km / R) +
-                          math.cos(lat_rad) * math.sin(distance_km / R) * math.cos(bearing_rad))
+    delta_lat = (2*b*math.pi) / 360
+    lat_change = distance*math.cos(-bearing_rad)/delta_lat
 
     # Calculate the change in longitude
-    lon_change = lon_rad + math.atan2(math.sin(bearing_rad) * math.sin(distance_km / R) * math.cos(lat_rad),
-                                      math.cos(distance_km / R) - math.sin(lat_rad) * math.sin(lat_change))
-
+    e2 = (R**2 - b**2)/(R**2)
+    delta_lon = (math.pi * R * math.cos(lat_rad)) / (180 * math.sqrt(1 - e2 * math.sin(lat_rad)**2))
+    lon_change = -distance*math.sin(-bearing_rad)/delta_lon
     # Convert back to degrees
     lat_change_deg = math.degrees(lat_change)
     lon_change_deg = math.degrees(lon_change)
 
     # Calculate the new latitude and longitude
-    new_latitude = latitude + lat_change_deg
-    new_longitude = longitude + lon_change_deg
+    new_latitude = latitude + lat_change
+    new_longitude = longitude + lon_change
 
     return new_latitude, new_longitude
+
 
 allData = pd.read_csv("dataset.csv")
 size = 65
@@ -92,29 +93,38 @@ for i, row in data.iterrows():
     target = np.load("/home/christian/targetData/"+target_path[29:])
     target_data[:,:,i] = target[:,:,1]
 
-
+'''
 plt.figure()
 plt.imshow(enc_data[:,:,1,0])
-
+plt.scatter(250,250)
+'''
 bouye_meas = make_measurement_perfect_data(enc_data[:,:,1,0],enc_radius[:,0][0])
-print(bouye_meas)
 bouyes_pos = []
-calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[0][1],bouye_meas[0][0])
-new_lat1, new_long1 = calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[0][1],bouye_meas[0][0])
-bouyes_pos.append([new_lat1,new_long1])
-new_lat2, new_long2 = calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[1][1],bouye_meas[1][0])
-bouyes_pos.append([new_lat2,new_long2])
-print(bouyes_pos)
-''' This is a simulation/film where it is plotted on what is happening
+bouyes_pos.append(calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[0][1],bouye_meas[0][0]))
+bouyes_pos.append(calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[1][1],bouye_meas[1][0]))
+
+
+err = np.zeros([2,2,2,size])
+measurements = np.zeros([2,2,size])
+
+#This is a simulation/film where it is plotted on what is happening
 plt.figure()
 plt.subplot(1,2,1)
 plt.subplot(1,2,2)
 plt.ion()
 plt.show()
 for i in range(size):
-    meas = make_measurement_perfect_data(target_data[:,:,i],target_radius[:,i][0])
-    print(i)
-    print(meas)
+    measurement = make_measurement_perfect_data(target_data[:,:,i],target_radius[:,i][0])
+    measurements[:,:,i] = measurement
+    for j in range(len(measurement)):
+        est_pos0 = calculate_destination_point(bouyes_pos[0][0],bouyes_pos[0][1],(180-measurement[j][1])%360,measurement[j][0])
+        est_pos1 = calculate_destination_point(bouyes_pos[1][0],bouyes_pos[1][1],(180-measurement[j][1])%360,measurement[j][0])
+        #print(est_pos[0]-latitude[:,i][0],est_pos[1]-longitude[:,i][0])
+        err[j,0,0,i] = est_pos0[0]-latitude[:,i][0]
+        err[j,0,1,i] = est_pos0[1]-longitude[:,i][0]
+        err[j,1,0,i] = est_pos1[0]-latitude[:,i][0]
+        err[j,1,1,i] = est_pos1[1]-longitude[:,i][0]
+
     plt.clf()
     plt.subplot(1,2,1)
     plt.imshow(enc_data[:,:,:,i])
@@ -123,9 +133,40 @@ for i in range(size):
     plt.imshow(target_data[:,:,i])
     plt.scatter(250,250)
     plt.draw()
-    plt.pause(0.5)
+    plt.pause(0.005)
 
-'''
+plt.ioff()
+
+plt.figure()
+plt.subplot(2,2,1)
+plt.plot(err[0,0,0,:])
+
+plt.subplot(2,2,2)
+plt.plot(err[0,0,1,:])
+
+plt.subplot(2,2,3)
+plt.plot(err[0,1,0,:])
+
+plt.subplot(2,2,4)
+plt.plot(err[0,1,1,:])
     
+plt.figure()
+plt.subplot(2,2,1)
+plt.plot(err[1,1,0,:])
+
+plt.subplot(2,2,2)
+plt.plot(err[1,1,1,:])
+
+plt.subplot(2,2,3)
+plt.plot(err[1,1,0,:])
+
+plt.subplot(2,2,4)
+plt.plot(err[1,1,1,:])
+
+
+plt.figure()
+plt.plot(measurements[0,0,:])
+
+
 
 plt.show()
