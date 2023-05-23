@@ -18,8 +18,8 @@ def convert_to_navigation_angle(angle_rad):
 Takes blob center and radius of the sensing in meter and converts it to a distance and bering to the blob
 '''
 def read_blob_distance_bearing(blob_center,max_radius):
-    v = np.array([blob_center[0]-249.5,-(blob_center[1]-249.5)])
-    distance = (math.sqrt((v[0])**2+(v[1])**2)/249.5)*max_radius
+    v = np.array([blob_center[0]-250,-(blob_center[1]-250)])
+    distance = (math.sqrt((v[0])**2+(v[1])**2)/250)*max_radius
     bearing = math.atan2(v[1],v[0])
     return distance, convert_to_navigation_angle(bearing)
 
@@ -126,6 +126,7 @@ def calculate_destination_point(latitude, longitude, bearing, distance):
 
     # Converting to ECEF
     x ,y , z = geodeticToECEF(lat_rad,lon_rad,0)
+    lat_test, lon_test, h_test = ECEFtoGeodetic(x,y,z)
 
     # Distances in tangent plane
     d_xt = distance*math.cos(-bearing_rad)
@@ -153,131 +154,37 @@ def calculate_destination_point(latitude, longitude, bearing, distance):
 
     return lat_new_deg,lon_new_deg
 
-allData = pd.read_csv("dataset.csv")
-size = 65
-data = allData.loc[0:size-1,['timestamp','enc_data','enc_max_range','latitude','longitude','heading','target_data','max_radius']]
+square = np.ones([3,3])*255
+n = 498
+ims = np.zeros([500,500,n])
 
-timestamp = np.zeros([1,size])
-enc_radius = np.zeros([1,size])
-longitude = np.zeros([1,size])
-latitude = np.zeros([1,size])
-heading = np.zeros([1,size])
-target_radius = np.zeros([1,size])
-enc_data = np.zeros([500,500,4,size])
-target_data = np.zeros([500,500,size])
+for i in range(n):
+    im = np.zeros([500,500])
+    square_center = np.array([i+1, 200])
+    im[99:102,i:i+3] = square
+    ims[:,:,i] = im
 
 
-for i, row in data.iterrows():
-    timestamp[:,i] = row['timestamp']
-    enc_radius[:,i] = row['enc_max_range']
-    longitude[:,i] = row['longitude']
-    latitude[:,i] = row['latitude']
-    heading[:,i] = row['heading']
-    target_radius[:,i] = row['max_radius']
-    enc_path = row['enc_data']
-    enc_data[:,:,:,i] = skimage.io.imread("enc_data/"+enc_path[17:])
-    target_path = row['target_data']
-    target = np.load("/home/christian/targetData/"+target_path[29:])
-    target_data[:,:,i] = target[:,:,1]
+latitude = 57
+longitude = 10
 
-'''
-plt.figure()
-plt.imshow(enc_data[:,:,1,0])
-plt.scatter(250,250)
-'''
-bouye_meas = make_measurement_perfect_data(enc_data[:,:,1,0],enc_radius[0,0])
+est_pos = np.zeros([2,n])
 
-bouyes_pos = []
-bouyes_pos.append(calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[0][1],bouye_meas[0][0]))
-bouyes_pos.append(calculate_destination_point(latitude[:,0][0],longitude[:,0][0],bouye_meas[1][1],bouye_meas[1][0]))
-print(bouyes_pos)
+for i in range(n):
+    measurement = make_measurement_perfect_data(ims[:,:,i],500)
+    lat,lon = calculate_destination_point(latitude,longitude,measurement[0][1],measurement[0][0])
+    est_pos[:,i] = np.array([lat,lon])
 
-bouyes_pos_true =[[57+3.408/60,10+3.352/60],[57+3.257/60,10+3.384/60]]
-print(bouyes_pos_true)
-
-lat, lon, h = ECEFtoGeodetic(-2430601.828,-4702442.703,3546587.358)
-print(math.degrees(lat),math.degrees(lon),h)
-
-err = np.zeros([2,2,2,size])
-measurements = np.zeros([2,2,size])
-
-
-#This is a simulation/film where it is plotted on what is happening
+print(est_pos[0,:10])
 plt.figure()
 plt.subplot(1,2,1)
+plt.plot(est_pos[0,:])
+
 plt.subplot(1,2,2)
-plt.ion()
-plt.show()
-for i in range(size):
-    measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
-    measurements[:,:,i] = measurement
-    for j in range(len(measurement)):
-        #est_pos0 = calculate_destination_point(bouyes_pos_true[0][0],bouyes_pos_true[0][1],(180-measurement[j][1])%360,measurement[j][0])
-        #est_pos1 = calculate_destination_point(bouyes_pos_true[1][0],bouyes_pos_true[1][1],(180-measurement[j][1])%360,measurement[j][0])
-        est_pos0 = calculate_destination_point(latitude[0,i],longitude[0,i],measurement[j][1],measurement[j][0])
-        #print(est_pos0[0]-latitude[0,i],est_pos0[1]-longitude[:,i][0])
-        #print(est_pos1[0]-latitude[:,i][0],est_pos1[1]-longitude[:,i][0])
-        #print(est_pos[0]-latitude[:,i][0],est_pos[1]-longitude[:,i][0])
-        #err[j,0,0,i] = est_pos0[0]-latitude[0,i]
-        #err[j,0,1,i] = est_pos0[1]-longitude[0,i]
-        #err[j,1,0,i] = est_pos1[0]-latitude[0,i]
-        #err[j,1,1,i] = est_pos1[1]-longitude[0,i]
-        err[j,0,0,i] = est_pos0[0] - bouyes_pos_true[0][0]
-        err[j,0,1,i] = est_pos0[1] - bouyes_pos_true[0][1]
-        err[j,1,0,i] = est_pos0[0] - bouyes_pos_true[1][0]
-        err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
-
-    plt.clf()
-    plt.subplot(1,2,1)
-    plt.imshow(enc_data[:,:,:,i].astype(int))
-    plt.scatter(250,250)
-    plt.subplot(1,2,2)
-    plt.imshow(target_data[:,:,i])
-    plt.scatter(250,250)
-    plt.draw()
-    plt.pause(0.005)
-
-plt.ioff()
+plt.plot(est_pos[1,:])
 
 plt.figure()
-plt.subplot(2,2,1)
-plt.plot(err[0,0,0,:])
-
-plt.subplot(2,2,2)
-plt.plot(err[0,0,1,:])
-
-plt.subplot(2,2,3)
-plt.plot(err[0,1,0,:])
-
-plt.subplot(2,2,4)
-plt.plot(err[0,1,1,:])
-    
-plt.figure()
-plt.subplot(2,2,1)
-plt.plot(err[1,1,0,:])
-
-plt.subplot(2,2,2)
-plt.plot(err[1,1,1,:])
-
-plt.subplot(2,2,3)
-plt.plot(err[1,1,0,:])
-
-plt.subplot(2,2,4)
-plt.plot(err[1,1,1,:])
-
-
-plt.figure()
-plt.subplot(2,2,1)
-plt.plot(measurements[0,0,:])
-plt.subplot(2,2,2)
-plt.plot(measurements[0,1,:])
-plt.subplot(2,2,3)
-plt.plot(measurements[1,0,:])
-plt.subplot(2,2,4)
-plt.plot(measurements[1,1,:])
-
-# Try making a test with ECEF frame
-
-
+plt.plot(est_pos[1,:],est_pos[0,:])
+plt.ylim(56.99,57.01)
 
 plt.show()
