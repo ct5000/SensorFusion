@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import skimage.feature
 import math
+import UKF_simple
 
 
 '''
@@ -188,13 +189,37 @@ measurements = np.zeros([2,2,size])
 bouyes_pos_est = np.zeros([2,2,size])
 pos_est = np.zeros([2,2,size])
 
+# Initialise UKF
+UKF = UKF_simple.UnscentedKalmanFilter(2,4,np.array(0.01*np.ones((2,2))),np.array(0.01*np.ones((4,4))))
+UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
+
+measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
+measurements[:,:,0] = measurement
+for j in range(len(measurement)):
+    est_pos = calculate_my_position(bouyes_pos_true[j][0],bouyes_pos_true[j][1],measurement[j][1],measurement[j][0])
+    #est_pos1 = calculate_my_position(bouyes_pos_true[1][0],bouyes_pos_true[1][1],measurement[j][1],measurement[j][0])
+    #err[j,0,0,i] = est_pos0[0]-latitude[0,i]
+    #err[j,0,1,i] = est_pos0[1]-longitude[0,i]
+    #err[j,1,0,i] = est_pos1[0]-latitude[0,i]
+    #err[j,1,1,i] = est_pos1[1]-longitude[0,i]
+    #err[j,0,0,i] = est_pos0[0] - bouyes_pos_true[0][0]
+    #err[j,0,1,i] = est_pos0[1] - bouyes_pos_true[0][1]
+    #err[j,1,0,i] = est_pos0[0] - bouyes_pos_true[1][0]
+    #err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
+    #bouyes_pos_est[j,:,i] = est_pos0
+    pos_est[j,:,0] = est_pos
+UKF.set_initial_measurement(np.reshape(pos_est[:,:,0],[4]))
+
+kal_pos = np.zeros([2,size])
+
 #This is a simulation/film where it is plotted on what is happening
 plt.figure()
 plt.subplot(1,2,1)
 plt.subplot(1,2,2)
 plt.ion() # Turn on interactivity
 plt.show()
-for i in range(size):
+for i in range(1,size):
+    UKF.predict(timestamp[0,i]-timestamp[0,i-1],2,heading[0,i])
     measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
     measurements[:,:,i] = measurement
     for j in range(len(measurement)):
@@ -210,6 +235,8 @@ for i in range(size):
         #err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
         #bouyes_pos_est[j,:,i] = est_pos0
         pos_est[j,:,i] = est_pos
+    UKF.update(np.reshape(pos_est[:,:,i],[1,4]))
+    kal_pos[:,i] = UKF.get_state()
     plt.clf()
     plt.subplot(1,2,1)
     plt.imshow(enc_data[:,:,:,i].astype(int))
@@ -253,6 +280,7 @@ plt.figure()
 plt.plot(pos_est[0,1,:],pos_est[0,0,:],label='Est1')
 plt.plot(pos_est[1,1,:],pos_est[1,0,:],label='Est2')
 plt.plot(longitude[0,:],latitude[0,:],label='True')
+plt.plot(kal_pos[1,:],kal_pos[0,:],label="Kalman")
 plt.ylim([57.03,57.07])
 plt.xlim([10.04,10.08])
 plt.legend()
