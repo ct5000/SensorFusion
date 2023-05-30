@@ -184,13 +184,17 @@ plt.scatter(250,250)
 '''
 bouyes_pos_true =[[57+3.408/60,10+3.352/60],[57+3.257/60,10+3.384/60]] #Found on OpenSeaMap
 
+print(latitude[0,0],longitude[0,0],heading[0,0])
+lat2, lon2 = calculate_destination_point(latitude[0,0],longitude[0,0],heading[0,0],15)
+print(lat2-latitude[0,0],lon2-longitude[0,0],heading[0,0])
+
 #err = np.zeros([2,2,2,size])
 measurements = np.zeros([2,2,size])
 bouyes_pos_est = np.zeros([2,2,size])
 pos_est = np.zeros([2,2,size])
 
 # Initialise UKF
-UKF = UKF_simple.UnscentedKalmanFilter(2,4,np.array(0.01*np.ones((2,2))),np.array(0.01*np.ones((4,4))))
+UKF = UKF_simple.UnscentedKalmanFilter(2,4,np.array(0.01*np.identity(2)),np.array(0.0001*np.identity(4)))
 UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
 
 measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
@@ -208,10 +212,13 @@ for j in range(len(measurement)):
     #err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
     #bouyes_pos_est[j,:,i] = est_pos0
     pos_est[j,:,0] = est_pos
-UKF.set_initial_measurement(np.reshape(pos_est[:,:,0],[4]))
+UKF.set_initial_measurement(np.reshape(pos_est[:,:,0],[1,4]))
 
 kal_pos = np.zeros([2,size])
-
+print("Initial state")
+print(UKF.get_state())
+print(np.reshape(pos_est[:,:,0],[1,4]))
+kal_pos[:,0] = UKF.get_state()
 #This is a simulation/film where it is plotted on what is happening
 plt.figure()
 plt.subplot(1,2,1)
@@ -219,7 +226,7 @@ plt.subplot(1,2,2)
 plt.ion() # Turn on interactivity
 plt.show()
 for i in range(1,size):
-    UKF.predict(timestamp[0,i]-timestamp[0,i-1],2,heading[0,i])
+    UKF.predict(timestamp[0,i]-timestamp[0,i-1],3.6,heading[0,i])
     measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
     measurements[:,:,i] = measurement
     for j in range(len(measurement)):
@@ -277,13 +284,22 @@ plt.plot(err[1,1,1,:])
 '''
 
 plt.figure()
-plt.plot(pos_est[0,1,:],pos_est[0,0,:],label='Est1')
-plt.plot(pos_est[1,1,:],pos_est[1,0,:],label='Est2')
-plt.plot(longitude[0,:],latitude[0,:],label='True')
-plt.plot(kal_pos[1,:],kal_pos[0,:],label="Kalman")
+plt.plot(pos_est[0,1,1:],pos_est[0,0,1:],label='Est1')
+plt.plot(pos_est[1,1,1:],pos_est[1,0,1:],label='Est2')
+plt.plot(longitude[0,1:],latitude[0,1:],label='True')
+plt.plot(kal_pos[1,1:],kal_pos[0,1:],label="Kalman")
 plt.ylim([57.03,57.07])
 plt.xlim([10.04,10.08])
 plt.legend()
+
+
+plt.figure()
+plt.plot(kal_pos[1,:],kal_pos[0,:],label="Kalman")
+
+
+plt.figure()
+plt.plot(pos_est[0,1,:],label='Est1')
+
 
 ''' Plots of measurements and the estimated position of the bouyes together with the variance in the estimate
 

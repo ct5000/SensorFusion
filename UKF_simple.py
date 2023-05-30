@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import pyproj
 
 class UnscentedKalmanFilter:
     def __init__(self, state_dim, measurement_dim, process_noise_cov, measurement_noise_cov):
@@ -12,10 +13,11 @@ class UnscentedKalmanFilter:
         self.beta = 2.0   # Weighting parameter for covariance estimation
         self.num_sigma_points = 2 * state_dim + 1
         self.sigma_points = np.zeros((self.num_sigma_points, state_dim))
+        self.sigma_points_measurements = np.zeros((self.num_sigma_points,measurement_dim))
         self.weights_mean = np.zeros(self.num_sigma_points)
         self.weights_cov = np.zeros(self.num_sigma_points)
         self.state_mean = np.zeros(state_dim)
-        self.state_cov = process_noise_cov*3 # The 3 is arbitrary
+        self.state_cov = np.identity(2)*3 # The 3 is arbitrary
         self.measurement_mean = np.zeros(measurement_dim)
         self.measurement_cov = measurement_noise_cov
     
@@ -34,8 +36,6 @@ class UnscentedKalmanFilter:
     
     def _generate_sigma_points(self):
         sqrt_cov = np.linalg.cholesky(self.state_cov)
-        print(self.sigma_points.shape)
-        print(self.state_mean)
         self.sigma_points[0,:] = self.state_mean
         self.weights_mean[0] = self.alpha/(self.state_dim+self.alpha)
         scaled_sqrt_cov = np.sqrt(self.state_dim + self.alpha) * sqrt_cov
@@ -49,7 +49,33 @@ class UnscentedKalmanFilter:
         # Implement the process model to propagate sigma points
         # Update self.sigma_points with the propagated sigma points
         for i in range(self.num_sigma_points):
-            self.sigma_points[i,:] = np.array(self.calculate_destination_point(self.sigma_points[i,0],self.sigma_points[i,0],heading,delta_time*speed))  # Placeholder
+            #propagate = np.array(self.calculate_destination_point(self.sigma_points[i,0],self.sigma_points[i,1],heading,delta_time*speed)) 
+            self.sigma_points[i,:] = np.array(self.calculate_destination_point2(self.sigma_points[i,0],self.sigma_points[i,1],heading,delta_time*speed))  
+            for j in range(int(self.measurement_dim/2)):
+                self.sigma_points_measurements[i,2*j] = self.sigma_points[i,0]
+                self.sigma_points_measurements[i,2*j+1] = self.sigma_points[i,1]
+
+
+    def calculate_destination_point2(self,latitude, longitude, bearing, distance):
+        # Statics
+        a = 6378137
+        b = 6356752.3142
+
+        # Converting to radians
+        lat_rad = math.radians(latitude)
+        lon_rad = math.radians(longitude)
+        bearing_rad = math.radians(bearing)
+
+        # Distances in tangent plane
+        d_lat = distance*math.cos(-bearing_rad)
+        d_lon = -distance*math.sin(-bearing_rad)
+        new_lat = latitude + d_lat * (360/(np.pi*b*2))
+        new_lon = 1/((np.pi/180) * a * np.cos(lat_rad)) * d_lon + longitude
+
+        print("delta_lat: ", (360/(np.pi*b*2))**(-1))
+        print("delta_lon: ", ((np.pi/180) * a * np.cos(lat_rad)))
+        return new_lat, new_lon
+
 
     def calculate_destination_point(self,latitude, longitude, bearing, distance):
         # Converting to radians
@@ -77,13 +103,22 @@ class UnscentedKalmanFilter:
         x_new = x + d_vec[0,0]
         y_new = y + d_vec[1,0]
         z_new = z + d_vec[2,0]
+        print("d_vect: ",d_vect)
+        print("d_vec: ", d_vec)
+        print("z: ",z,"z_new: ", z_new)
 
         # Convert to geodetic
         lat_new_rad, lon_new_rad, h_new = self.ECEFtoGeodetic(x_new,y_new,z_new)
 
+        transformer = pyproj.Transformer.from_crs({"proj":'geocent',"ellps":'WGS84',"datum":'WGS84'},
+                                                  {"proj":'latlong',"ellps":'WGS84',"datum":'WGS84'})
+        lon2, lat2, alt2 = transformer.transform(x_new,y_new,z_new,radians=False)
         lat_new_deg = math.degrees(lat_new_rad)
         lon_new_deg = math.degrees(lon_new_rad)
-
+        print("Latitude old: ", latitude)
+        print("Latitude new: ", lat_new_deg)
+        print("Lat 2", lat2)
+        print("alt2: ", alt2)
         return lat_new_deg,lon_new_deg
     
     """
@@ -119,14 +154,12 @@ class UnscentedKalmanFilter:
         h_prev = 1
 
         # Iteration
-        while (abs(latitude-lat_prev)>1e-10 or abs(h-h_prev)>1e-2):
+        while (abs(latitude-lat_prev)>1e-16 or abs(h-h_prev)>1e-5):
             lat_prev = latitude
             h_prev = h
             sinLat = z / ((1-e**2)*RN+h)
             latitude = math.atan((z+e**2*RN*sinLat)/p)
             RN = a / (math.sqrt(1-e**2*sinLat**2))
-            #print(RN)
-            #print(p / math.cos(latitude))
             h = p / math.cos(latitude) - RN
         return latitude, longitude, h
 
@@ -137,10 +170,9 @@ class UnscentedKalmanFilter:
     def _compute_predicted_measurement(self):
         # Implement the measurement model to compute predicted measurements
         # Update self.measurement_mean with the predicted measurement mean
-        print(self.measurement_mean.shape)
         for i in range(int(self.measurement_dim/2)):
-            self.measurement_mean[2*i] = self.state_mean[0]
-            self.measurement_mean[2*i+1] = self.state_mean[1]
+            self.measurement_mean[0,2*i] = self.state_mean[0]
+            self.measurement_mean[0,2*i+1] = self.state_mean[1]
         
     def _compute_predicted_covariance(self):
         centered_points = self.sigma_points - self.state_mean
@@ -149,7 +181,7 @@ class UnscentedKalmanFilter:
     
     def _compute_cross_covariance(self):
         centered_states = self.sigma_points - self.state_mean
-        centered_measurements = self.sigma_points - self.measurement_mean
+        centered_measurements = self.sigma_points_measurements - self.measurement_mean
         self.cross_cov = (self.weights_cov[:, np.newaxis] * centered_states).T @ centered_measurements
     
     def _compute_kalman_gain(self):
@@ -158,7 +190,7 @@ class UnscentedKalmanFilter:
     
     def _update_state(self, measurement):
         innovation = measurement - self.measurement_mean
-        self.state_mean += self.kalman_gain @ innovation
+        self.state_mean += np.reshape(self.kalman_gain @ innovation.T,[2])
     
     def _update_covariance(self):
         self.state_cov -= self.kalman_gain @ self.measurement_cov @ self.kalman_gain.T
