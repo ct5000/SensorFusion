@@ -8,6 +8,7 @@ class UnscentedKalmanFilter:
         self.measurement_dim = measurement_dim
         self.process_noise_cov = process_noise_cov
         self.measurement_noise_cov = measurement_noise_cov
+        self.lamb = 3 - state_dim
         self.alpha = np.sqrt(3/measurement_dim)  # Scaling parameter for selecting sigma points
         self.kappa = 0.0  # Secondary scaling parameter
         self.beta = 3 / measurement_dim - 1   # Weighting parameter for covariance estimation
@@ -37,13 +38,15 @@ class UnscentedKalmanFilter:
     def _generate_sigma_points(self):
         sqrt_cov = np.linalg.cholesky(self.state_cov)
         self.sigma_points[0,:] = self.state_mean
-        self.weights_mean[0] = self.alpha/(self.state_dim+self.alpha)
-        scaled_sqrt_cov = np.sqrt(self.state_dim + self.alpha) * sqrt_cov
+        self.weights_mean[0] = self.lamb/(self.state_dim+self.lamb)
+        scaled_sqrt_cov = np.sqrt(self.state_dim + self.lamb) * sqrt_cov
         for i in range(self.state_dim):
             self.sigma_points[i + 1] = self.state_mean + scaled_sqrt_cov[i]
             self.sigma_points[i + 1 + self.state_dim] = self.state_mean - scaled_sqrt_cov[i]
-            self.weights_mean[i + 1] = 1 / (2*(self.state_dim+self.alpha))
-            self.weights_mean[i + 1 + self.state_dim] = 1 / (2*(self.state_dim+self.alpha))
+            self.weights_mean[i + 1] = 1 / (2*(self.state_dim+self.lamb))
+            self.weights_mean[i + 1 + self.state_dim] = 1 / (2*(self.state_dim+self.lamb))
+        self.weights_cov = np.cov(self.weights_mean)
+        #print(self.weights_cov)
     
     def _propagate_sigma_points(self, delta_time, speed, heading):
         # Implement the process model to propagate sigma points
@@ -175,21 +178,42 @@ class UnscentedKalmanFilter:
         
     def _compute_predicted_covariance(self):
         centered_points = self.sigma_points - self.state_mean
-        self.state_cov = (self.weights_cov[:, np.newaxis] * centered_points).T @ centered_points
+        #self.state_cov = (self.weights_cov[:, np.newaxis] * centered_points).T @ centered_points
+        self.state_cov = (self.weights_cov * centered_points).T @ centered_points
         self.state_cov += self.process_noise_cov + (1-self.alpha**2 + self.beta)*(centered_points[0,:].T@centered_points[0,:])
-    
+        print("_compute_predicted_covariance")
+        print(self.state_cov)
+
+    def _compute_sigma_covariance(self):
+        z_points_mean = np.vstack([self.state_mean,self.measurement_mean])
+        comb_sigma_points = np.vstack([self.sigma_points,self.sigma_points_measurements])
+        centered_points = comb_sigma_points - z_points_mean
+        self.cross_cov = centered_points.T @ centered_points
+
     def _compute_cross_covariance(self):
         centered_states = self.sigma_points - self.state_mean
         centered_measurements = self.sigma_points_measurements - self.measurement_mean
-        self.cross_cov = (self.weights_cov[:, np.newaxis] * centered_states).T @ centered_measurements
+        print("_compute_cross_covariance")
+        print(centered_states)
+        print(centered_measurements)
+        print(self.weights_cov)
+        #self.cross_cov = (self.weights_cov[:, np.newaxis] * centered_states).T @ centered_measurements
+        self.cross_cov = (self.weights_cov * centered_states).T @ centered_measurements
     
     def _compute_kalman_gain(self):
         innovation_cov =  self.measurement_noise_cov # Look into updating the measurement_cov during the calculations
+        print("_compute_kalman_gain")
+        print(innovation_cov)
+        print(self.cross_cov)
         self.kalman_gain = self.cross_cov @ np.linalg.inv(innovation_cov)
     
     def _update_state(self, measurement):
         innovation = measurement - self.measurement_mean
+        print("_update_state")
+        print(innovation)
+        print(self.kalman_gain)
         self.state_mean += np.reshape(self.kalman_gain @ innovation.T,[2])
+        
     
     def _update_covariance(self):
         self.state_cov -= self.kalman_gain @ self.measurement_cov @ self.kalman_gain.T
@@ -208,7 +232,8 @@ class UnscentedKalmanFilter:
     def set_measurement_noise_cov(self, measurement_noise_cov):
         self.measurement_noise_cov = measurement_noise_cov
     
-    def set_parameters(self, alpha, kappa, beta):
+    def set_parameters(self, lamb,alpha, kappa, beta):
+        self.lamb = lamb
         self.alpha = alpha
         self.kappa = kappa
         self.beta = beta
