@@ -155,6 +155,9 @@ allData = pd.read_csv("dataset.csv")
 size = 65
 data = allData.loc[0:size-1,['timestamp','enc_data','enc_max_range','latitude','longitude','heading','target_data','max_radius']]
 
+speed_data_all = pd.read_csv("velocity.csv")
+speed_data = speed_data_all.loc[0:5*size-1,['timestamp','sog','cog']]
+
 timestamp = np.zeros([1,size])
 enc_radius = np.zeros([1,size])
 longitude = np.zeros([1,size])
@@ -163,6 +166,10 @@ heading = np.zeros([1,size])
 target_radius = np.zeros([1,size])
 enc_data = np.zeros([500,500,4,size])
 target_data = np.zeros([500,500,size])
+sog_data = np.zeros([1,size*5])
+cog_data = np.zeros([1,size*5])
+vel_timestamp = np.zeros([1,size*5])
+
 
 for i, row in data.iterrows():
     timestamp[:,i] = row['timestamp']
@@ -176,6 +183,12 @@ for i, row in data.iterrows():
     target_path = row['target_data']
     target = np.load("/home/christian/targetData/"+target_path[29:])
     target_data[:,:,i] = target[:,:,1]
+
+for i, row in speed_data.iterrows():
+    if row['sog'] > 0:
+        sog_data[:,i] = row['sog']
+        cog_data[:,i] = row['cog']
+        vel_timestamp[:,i] = row['timestamp']
 
 '''
 plt.figure()
@@ -197,7 +210,7 @@ pos_est = np.zeros([2,2,size])
 UKF = UKF_simple.UnscentedKalmanFilter(2,4,np.array(0.01*np.identity(2)),np.array(0.0001*np.identity(4)))
 UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
 
-measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
+measurement = make_measurement_perfect_data(enc_data[:,:,1,0],enc_radius[:,0][0])
 measurements[:,:,0] = measurement
 for j in range(len(measurement)):
     est_pos = calculate_my_position(bouyes_pos_true[j][0],bouyes_pos_true[j][1],measurement[j][1],measurement[j][0])
@@ -225,8 +238,20 @@ plt.subplot(1,2,1)
 plt.subplot(1,2,2)
 plt.ion() # Turn on interactivity
 plt.show()
+
+vel_idx = 0
+
 for i in range(1,size):
-    UKF.predict(timestamp[0,i]-timestamp[0,i-1],3.6,heading[0,i])
+    min_time_diff = abs(timestamp[0,i] - vel_timestamp[0,vel_idx])
+    for j in range(vel_idx+1,5*size):
+        time_diff = abs(timestamp[0,i] - vel_timestamp[0,j])
+        if time_diff < min_time_diff:
+            vel_idx = j
+        else:
+            break
+    vel_ms = sog_data[0,vel_idx]*1.852/3.6
+    head_cog = cog_data[0,vel_idx]
+    UKF.predict(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
     measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
     measurements[:,:,i] = measurement
     for j in range(len(measurement)):

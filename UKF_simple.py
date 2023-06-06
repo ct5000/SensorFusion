@@ -8,9 +8,9 @@ class UnscentedKalmanFilter:
         self.measurement_dim = measurement_dim
         self.process_noise_cov = process_noise_cov
         self.measurement_noise_cov = measurement_noise_cov
-        self.alpha = 0.1  # Scaling parameter for selecting sigma points
+        self.alpha = np.sqrt(3/measurement_dim)  # Scaling parameter for selecting sigma points
         self.kappa = 0.0  # Secondary scaling parameter
-        self.beta = 2.0   # Weighting parameter for covariance estimation
+        self.beta = 3 / measurement_dim - 1   # Weighting parameter for covariance estimation
         self.num_sigma_points = 2 * state_dim + 1
         self.sigma_points = np.zeros((self.num_sigma_points, state_dim))
         self.sigma_points_measurements = np.zeros((self.num_sigma_points,measurement_dim))
@@ -72,8 +72,7 @@ class UnscentedKalmanFilter:
         new_lat = latitude + d_lat * (360/(np.pi*b*2))
         new_lon = 1/((np.pi/180) * a * np.cos(lat_rad)) * d_lon + longitude
 
-        print("delta_lat: ", (360/(np.pi*b*2))**(-1))
-        print("delta_lon: ", ((np.pi/180) * a * np.cos(lat_rad)))
+
         return new_lat, new_lon
 
 
@@ -177,7 +176,7 @@ class UnscentedKalmanFilter:
     def _compute_predicted_covariance(self):
         centered_points = self.sigma_points - self.state_mean
         self.state_cov = (self.weights_cov[:, np.newaxis] * centered_points).T @ centered_points
-        self.state_cov += self.process_noise_cov
+        self.state_cov += self.process_noise_cov + (1-self.alpha**2 + self.beta)*(centered_points[0,:].T@centered_points[0,:])
     
     def _compute_cross_covariance(self):
         centered_states = self.sigma_points - self.state_mean
@@ -185,7 +184,7 @@ class UnscentedKalmanFilter:
         self.cross_cov = (self.weights_cov[:, np.newaxis] * centered_states).T @ centered_measurements
     
     def _compute_kalman_gain(self):
-        innovation_cov = self.measurement_cov + self.measurement_noise_cov
+        innovation_cov =  self.measurement_noise_cov # Look into updating the measurement_cov during the calculations
         self.kalman_gain = self.cross_cov @ np.linalg.inv(innovation_cov)
     
     def _update_state(self, measurement):
