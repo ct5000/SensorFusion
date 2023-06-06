@@ -45,7 +45,7 @@ class UnscentedKalmanFilter:
             self.sigma_points[i + 1 + self.state_dim] = self.state_mean - scaled_sqrt_cov[i]
             self.weights_mean[i + 1] = 1 / (2*(self.state_dim+self.lamb))
             self.weights_mean[i + 1 + self.state_dim] = 1 / (2*(self.state_dim+self.lamb))
-        self.weights_cov = np.cov(self.weights_mean)
+        #self.weights_cov = np.cov(self.weights_mean)
         #print(self.weights_cov)
     
     def _propagate_sigma_points(self, delta_time, speed, heading):
@@ -178,8 +178,8 @@ class UnscentedKalmanFilter:
         
     def _compute_predicted_covariance(self):
         centered_points = self.sigma_points - self.state_mean
-        #self.state_cov = (self.weights_cov[:, np.newaxis] * centered_points).T @ centered_points
-        self.state_cov = (self.weights_cov * centered_points).T @ centered_points
+        self.state_cov = (self.weights_cov[:, np.newaxis] * centered_points).T @ centered_points
+        #self.state_cov = (self.weights_cov * centered_points).T @ centered_points
         self.state_cov += self.process_noise_cov + (1-self.alpha**2 + self.beta)*(centered_points[0,:].T@centered_points[0,:])
         print("_compute_predicted_covariance")
         print(self.state_cov)
@@ -197,8 +197,8 @@ class UnscentedKalmanFilter:
         print(centered_states)
         print(centered_measurements)
         print(self.weights_cov)
-        #self.cross_cov = (self.weights_cov[:, np.newaxis] * centered_states).T @ centered_measurements
-        self.cross_cov = (self.weights_cov * centered_states).T @ centered_measurements
+        self.cross_cov = (self.weights_cov[:, np.newaxis] * centered_states).T @ centered_measurements
+        #self.cross_cov = (self.weights_cov * centered_states).T @ centered_measurements
     
     def _compute_kalman_gain(self):
         innovation_cov =  self.measurement_noise_cov # Look into updating the measurement_cov during the calculations

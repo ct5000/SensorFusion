@@ -6,6 +6,7 @@ import skimage.feature
 import math
 import UKF_simple
 import cv2
+import UKF_simple_v2
 
 '''
 Converts from cartesian coordinate system in radians to navigational coordinate system in degrees with reference North
@@ -214,7 +215,7 @@ kal_pos = np.zeros([2,size])
 pos_est = np.zeros([2,2,size])
 
 # Initialise UKF
-UKF = UKF_simple.UnscentedKalmanFilter(2,4,np.array(10*np.identity(2)),np.array(0.01*np.identity(4)))
+UKF = UKF_simple_v2.UnscentedKalmanFilter(2,4,np.array(10*np.identity(2)),np.array(0.01*np.identity(4)))
 UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
 measurement = make_measurement(radar_im[:,:,0],xbr_radius[0,0],heading[0,0])
 buoy_pos, meas_idx = find_buoys_meas(latitude[0,0],longitude[0,0],buoyes_pos_true,measurement)
@@ -230,7 +231,7 @@ kal_pos[:,0] = UKF.get_state()
 
 #plt.ion() # Turn on interactivity
 #plt.show()
-
+quit()
 vel_idx = 0
 for i in range(1,size):
     min_time_diff = abs(timestamp[0,i] - vel_timestamp[0,vel_idx])
@@ -244,7 +245,9 @@ for i in range(1,size):
     head_cog = cog_data[0,vel_idx]
     UKF.predict(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
     measurement = make_measurement(radar_im[:,:,i],xbr_radius[0,i],heading[0,i])
-    buoy_pos, meas_idx = find_buoys_meas(latitude[0,i],longitude[0,i],buoyes_pos_true,measurement)
+    kal_pos[:,i] = UKF.get_state()
+    #buoy_pos, meas_idx = find_buoys_meas(latitude[0,i],longitude[0,i],buoyes_pos_true,measurement)
+    buoy_pos, meas_idx = find_buoys_meas(kal_pos[0,i],kal_pos[1,i],buoyes_pos_true,measurement)
     for j in range(len(meas_idx)):
         est_pos = calculate_my_position(buoyes_pos_true[j][0],buoyes_pos_true[j][1],measurement[meas_idx[j]][1],measurement[meas_idx[j]][0])
         pos_est[j,:,i] = est_pos
