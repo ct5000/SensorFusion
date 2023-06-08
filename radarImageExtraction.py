@@ -231,9 +231,10 @@ kal_pos[:,0] = UKF.get_state()
 
 #plt.ion() # Turn on interactivity
 #plt.show()
-quit()
+
 vel_idx = 0
 for i in range(1,size):
+    print(i)
     min_time_diff = abs(timestamp[0,i] - vel_timestamp[0,vel_idx])
     for j in range(vel_idx+1,5*size):
         time_diff = abs(timestamp[0,i] - vel_timestamp[0,j])
@@ -243,7 +244,10 @@ for i in range(1,size):
             break
     vel_ms = sog_data[0,vel_idx]*1.852/3.6
     head_cog = cog_data[0,vel_idx]
-    UKF.predict(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
+    print("delta time",timestamp[0,i]-timestamp[0,i-1])
+    print("vel",vel_ms)
+    print("cog",head_cog)
+    UKF.time_update(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
     measurement = make_measurement(radar_im[:,:,i],xbr_radius[0,i],heading[0,i])
     kal_pos[:,i] = UKF.get_state()
     #buoy_pos, meas_idx = find_buoys_meas(latitude[0,i],longitude[0,i],buoyes_pos_true,measurement)
@@ -251,7 +255,7 @@ for i in range(1,size):
     for j in range(len(meas_idx)):
         est_pos = calculate_my_position(buoyes_pos_true[j][0],buoyes_pos_true[j][1],measurement[meas_idx[j]][1],measurement[meas_idx[j]][0])
         pos_est[j,:,i] = est_pos
-    UKF.update(np.reshape(pos_est[:,:,i],[1,4]))
+    UKF.measurement_update(np.reshape(pos_est[:,:,i],[1,4]))
     kal_pos[:,i] = UKF.get_state()
 
     '''
