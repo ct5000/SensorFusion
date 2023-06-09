@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import skimage.feature
 import math
 import UKF_simple
+import UKF_simple_v2
 
 
 '''
@@ -152,7 +153,7 @@ def calculate_my_position(bouey_lat, bouye_lon, bearing, distance):
 
 # Setting up the necessary data 
 allData = pd.read_csv("dataset.csv")
-size = 65
+size = 65 #65 originally
 data = allData.loc[0:size-1,['timestamp','enc_data','enc_max_range','latitude','longitude','heading','target_data','max_radius']]
 
 speed_data_all = pd.read_csv("velocity.csv")
@@ -207,23 +208,13 @@ bouyes_pos_est = np.zeros([2,2,size])
 pos_est = np.zeros([2,2,size])
 
 # Initialise UKF
-UKF = UKF_simple.UnscentedKalmanFilter(2,4,np.array(0.01*np.identity(2)),np.array(0.0001*np.identity(4)))
+UKF = UKF_simple_v2.UnscentedKalmanFilter(2,4,np.array(0.1*np.identity(2)),np.array(0.1*np.identity(4)))
 UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
 
 measurement = make_measurement_perfect_data(enc_data[:,:,1,0],enc_radius[:,0][0])
 measurements[:,:,0] = measurement
 for j in range(len(measurement)):
     est_pos = calculate_my_position(bouyes_pos_true[j][0],bouyes_pos_true[j][1],measurement[j][1],measurement[j][0])
-    #est_pos1 = calculate_my_position(bouyes_pos_true[1][0],bouyes_pos_true[1][1],measurement[j][1],measurement[j][0])
-    #err[j,0,0,i] = est_pos0[0]-latitude[0,i]
-    #err[j,0,1,i] = est_pos0[1]-longitude[0,i]
-    #err[j,1,0,i] = est_pos1[0]-latitude[0,i]
-    #err[j,1,1,i] = est_pos1[1]-longitude[0,i]
-    #err[j,0,0,i] = est_pos0[0] - bouyes_pos_true[0][0]
-    #err[j,0,1,i] = est_pos0[1] - bouyes_pos_true[0][1]
-    #err[j,1,0,i] = est_pos0[0] - bouyes_pos_true[1][0]
-    #err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
-    #bouyes_pos_est[j,:,i] = est_pos0
     pos_est[j,:,0] = est_pos
 UKF.set_initial_measurement(np.reshape(pos_est[:,:,0],[1,4]))
 
@@ -242,8 +233,11 @@ plt.show()
 vel_idx = 0
 
 for i in range(1,size):
+    print("round: ",i)
     min_time_diff = abs(timestamp[0,i] - vel_timestamp[0,vel_idx])
     for j in range(vel_idx+1,5*size):
+        if vel_timestamp[0,j] == 0:
+            continue
         time_diff = abs(timestamp[0,i] - vel_timestamp[0,j])
         if time_diff < min_time_diff:
             vel_idx = j
@@ -251,7 +245,7 @@ for i in range(1,size):
             break
     vel_ms = sog_data[0,vel_idx]*1.852/3.6
     head_cog = cog_data[0,vel_idx]
-    UKF.predict(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
+    UKF.time_update(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
     measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
     measurements[:,:,i] = measurement
     for j in range(len(measurement)):
@@ -267,7 +261,7 @@ for i in range(1,size):
         #err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
         #bouyes_pos_est[j,:,i] = est_pos0
         pos_est[j,:,i] = est_pos
-    UKF.update(np.reshape(pos_est[:,:,i],[1,4]))
+    UKF.measurement_update(np.reshape(pos_est[:,:,i],[1,4]))
     kal_pos[:,i] = UKF.get_state()
     plt.clf()
     plt.subplot(1,2,1)
@@ -279,6 +273,7 @@ for i in range(1,size):
     plt.draw()
     plt.pause(0.005)
 plt.ioff() # Turns of interactivity
+
 
 ''' Error plots
 plt.figure()

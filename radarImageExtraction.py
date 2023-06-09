@@ -232,16 +232,21 @@ kal_pos[:,0] = UKF.get_state()
 #plt.ion() # Turn on interactivity
 #plt.show()
 
+
+
 vel_idx = 0
 for i in range(1,size):
     print(i)
     min_time_diff = abs(timestamp[0,i] - vel_timestamp[0,vel_idx])
     for j in range(vel_idx+1,5*size):
+        if vel_timestamp[0,j] == 0:
+            continue
         time_diff = abs(timestamp[0,i] - vel_timestamp[0,j])
         if time_diff < min_time_diff:
             vel_idx = j
         else:
             break
+    print("idx",vel_idx)
     vel_ms = sog_data[0,vel_idx]*1.852/3.6
     head_cog = cog_data[0,vel_idx]
     print("delta time",timestamp[0,i]-timestamp[0,i-1])
@@ -274,6 +279,7 @@ plt.ylim([57.03,57.07])
 plt.xlim([10.04,10.08])
 plt.legend()
 
-
+print(kal_pos[1,-1]-longitude[0,-1])
+print(kal_pos[0,-1]-latitude[0,-1])
 
 plt.show()
