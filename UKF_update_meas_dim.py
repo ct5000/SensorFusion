@@ -27,23 +27,19 @@ class UnscentedKalmanFilter:
         self.state_estimate = np.zeros(state_dim)
         #self.state_cov = np.identity(2) # The 3 is arbitrary
         self.state_cov = process_noise_cov
-        print(self.state_cov)
         self.measurement_estimate = np.zeros(measurement_dim)
         self.measurement_cov = measurement_noise_cov
-        self.cross_cov_meas = np.ones([2,4])
+        self.cross_cov_meas = np.ones([self.state_dim,self.measurement_dim])
         self.measurement_transform_cov = np.vstack([np.hstack([self.state_cov,self.cross_cov_meas]),np.hstack([self.cross_cov_meas.T,self.measurement_cov])])
 
 
     def measurement_update(self,measurement): #Update such that we only use measurement space in measurement update
-        #print("Before measurement")
-        #print(self.state_estimate)
         self._generate_sigma_points_measurement()
         self._calculate_sigma_covariance()
         self._update_kalman_gain()
         self._update_state_estimate_meas(measurement)
         self._update_state_cov()
-        #print("After measurement")
-        #print(self.state_estimate)
+
         
     '''
     Generates sigma points from (8.15b) and (A.19a/b)
@@ -69,25 +65,23 @@ class UnscentedKalmanFilter:
         self.state_estimate = mu_z[:2]
         self.measurement_estimate = mu_z[2:]
         mu_z = np.reshape(mu_z,[self.total_dim,1])
-        self.measurement_transform_cov = self.weights_measurement_update[0] * (np.reshape(self.sigma_points_measurement[:,0],[6,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,0],[6,1])-mu_z).T
+        self.measurement_transform_cov = self.weights_measurement_update[0] * (np.reshape(self.sigma_points_measurement[:,0],[self.total_dim,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,0],[self.total_dim,1])-mu_z).T
         for i in range(self.total_dim):
-            self.measurement_transform_cov += self.weights_measurement_update[2*i+2] * (np.reshape(self.sigma_points_measurement[:,2*i+2],[6,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,2*i+2],[6,1])-mu_z).T
-            self.measurement_transform_cov += self.weights_measurement_update[2*i+1] * (np.reshape(self.sigma_points_measurement[:,2*i+2],[6,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,2*i+2],[6,1])-mu_z).T
-        self.measurement_transform_cov += (1-self.alpha_meas**2+self.beta_meas**2)*(np.reshape(self.sigma_points_measurement[:,0],[6,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,0],[6,1])-mu_z).T
+            self.measurement_transform_cov += self.weights_measurement_update[2*i+2] * (np.reshape(self.sigma_points_measurement[:,2*i+2],[self.total_dim,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,2*i+2],[self.total_dim,1])-mu_z).T
+            self.measurement_transform_cov += self.weights_measurement_update[2*i+1] * (np.reshape(self.sigma_points_measurement[:,2*i+2],[self.total_dim,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,2*i+2],[self.total_dim,1])-mu_z).T
+        self.measurement_transform_cov += (1-self.alpha_meas**2+self.beta_meas**2)*(np.reshape(self.sigma_points_measurement[:,0],[self.total_dim,1])-mu_z)@(np.reshape(self.sigma_points_measurement[:,0],[self.total_dim,1])-mu_z).T
         self.state_cov = self.measurement_transform_cov[0:2,0:2]
         self.cross_cov_meas = self.measurement_transform_cov[0:2,2:]
         self.measurement_cov = self.measurement_transform_cov[2:,2:]
 
     def _update_kalman_gain(self):
         self.kalman_gain = self.cross_cov_meas@np.linalg.pinv(self.measurement_cov)
-        #print("kalman gain")
-        #print(self.kalman_gain)
-
 
     def _update_state_estimate_meas(self,measurement):
-        #print("innovation")
-        #print(np.reshape(measurement-np.hstack([self.state_estimate,self.state_estimate]),[4,1]))
-        kalman_inno = (self.kalman_gain@np.reshape(measurement-np.hstack([self.state_estimate,self.state_estimate]),[4,1]))
+        meas_hat = self.state_estimate
+        for i in range(1,self.measurement_dim//2):
+            meas_hat = np.hstack([meas_hat,self.state_estimate])
+        kalman_inno = (self.kalman_gain@np.reshape(measurement-meas_hat,[self.measurement_dim,1]))
         self.state_estimate += kalman_inno[:,0]
 
     def _update_state_cov(self):
@@ -95,13 +89,9 @@ class UnscentedKalmanFilter:
 
 
     def time_update(self,delta_time, speed, cog):
-        #print("Before time")
-        #print(self.state_estimate)
         self._generate_sigma_points_time()
         self._propagate_sigma_points_time(delta_time,speed,cog)
         self._calculate_state_cov_time()
-        #print("After time")
-        #print(self.state_estimate)
 
     def _generate_sigma_points_time(self):
         U,S,Vt = np.linalg.svd(self.state_cov)
@@ -195,7 +185,7 @@ class UnscentedKalmanFilter:
         self.measurement_dim = measurement_dim
         if curr_dim > measurement_dim:
             self.measurement_cov = self.measurement_cov[:measurement_dim,:measurement_dim]
-            self.measurement_transform_cov = self.measurement_transform_cov[:measurement_dim+self.state_dim:measurement_dim+self.state_dim]
+            self.measurement_transform_cov = self.measurement_transform_cov[:measurement_dim+self.state_dim,:measurement_dim+self.state_dim]
         else:
             # Do stuff with 
             dim_diff = measurement_dim - curr_dim
@@ -210,7 +200,7 @@ class UnscentedKalmanFilter:
                 new_trans_cov[:2,curr_dim+self.state_dim+2*i:curr_dim+self.state_dim+2*i+2] = self.measurement_transform_cov[:2,2:4]
                 for j in range(measurement_dim//2):
                     #Her skal jeg så have de der cross covariance først række og så kolonne
-                    if not (2*j==curr_dim+2*i):                        
+                    if not (2*j==curr_dim+2*i) and self.measurement_cov.shape[0] > 2:                    
                         new_meas_cov[curr_dim+2*i:curr_dim+2*i+2,2*j:2*j+2] = self.measurement_cov[2:4,:2]
                         new_meas_cov[2*j:2*j+2,curr_dim+2*i:curr_dim+2*i+2] = self.measurement_cov[:2,2:4]
                         new_trans_cov[curr_dim+self.state_dim+2*i:curr_dim+self.state_dim+2*i+2,self.state_dim+2*j:self.state_dim+2*j+2] = self.measurement_transform_cov[4:6,2:4]
@@ -218,7 +208,6 @@ class UnscentedKalmanFilter:
             self.measurement_cov = new_meas_cov
             self.measurement_transform_cov = new_trans_cov
         self.total_dim = self.state_dim + measurement_dim
-        print("Total dim: ",self.total_dim)
         self.num_sigma_points_measurement = 2 * self.total_dim + 1
         self.sigma_points_measurement = np.zeros((self.total_dim,self.num_sigma_points_measurement))
         self.weights_measurement_update = np.zeros(self.num_sigma_points_measurement)
