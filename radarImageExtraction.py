@@ -213,9 +213,12 @@ buoyes_pos_true =[[57+3.408/60,10+3.352/60],[57+3.257/60,10+3.384/60]] #Found on
 
 kal_pos = np.zeros([2,size])
 pos_est = np.zeros([2,2,size])
+meas_cov = np.zeros([4,4,size])
+state_cov = np.zeros([2,2,size])
+
 
 # Initialise UKF
-UKF = UKF_simple_v2.UnscentedKalmanFilter(2,4,np.array(10*np.identity(2)),np.array(0.01*np.identity(4)))
+UKF = UKF_simple_v2.UnscentedKalmanFilter(2,4,np.array(1*np.identity(2)),np.array(0.01*np.identity(4)))
 UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
 measurement = make_measurement(radar_im[:,:,0],xbr_radius[0,0],heading[0,0])
 buoy_pos, meas_idx = find_buoys_meas(latitude[0,0],longitude[0,0],buoyes_pos_true,measurement)
@@ -232,7 +235,8 @@ kal_pos[:,0] = UKF.get_state()
 #plt.ion() # Turn on interactivity
 #plt.show()
 
-
+meas_cov[:,:,0] = UKF.get_measurement_covariance()
+state_cov[:,:,0] = UKF.get_state_covariance()
 
 vel_idx = 0
 for i in range(1,size):
@@ -262,6 +266,8 @@ for i in range(1,size):
         pos_est[j,:,i] = est_pos
     UKF.measurement_update(np.reshape(pos_est[:,:,i],[1,4]))
     kal_pos[:,i] = UKF.get_state()
+    meas_cov[:,:,i] = UKF.get_measurement_covariance()
+    state_cov[:,:,i] = UKF.get_state_covariance()
 
     '''
     plt.clf()
@@ -278,8 +284,29 @@ plt.plot(kal_pos[1,1:],kal_pos[0,1:],label="Kalman")
 plt.ylim([57.03,57.07])
 plt.xlim([10.04,10.08])
 plt.legend()
+plt.xlabel("Longitude")
+plt.ylabel("Latitude")
+plt.title("Position of the vessel")
 
 print(kal_pos[1,-1]-longitude[0,-1])
 print(kal_pos[0,-1]-latitude[0,-1])
+
+d_pos = np.sqrt(((kal_pos[1,size-1]-longitude[0,size-1])*60000)**2+((kal_pos[0,size-1]-latitude[0,size-1])*111000)**2)
+print("diff pos: ", d_pos)
+
+plt.figure()
+plt.plot(state_cov[0,0,:],label="State cov 1")
+plt.plot(state_cov[1,1,:],label="State cov 2")
+plt.plot(meas_cov[0,0,:],label="Meas cov 1")
+plt.plot(meas_cov[1,1,:],label="Meas cov 2")
+plt.plot(meas_cov[2,2,:],label="Meas cov 3")
+plt.plot(meas_cov[3,3,:],label="Meas cov 4")
+plt.legend()
+plt.xlabel("Sample")
+plt.ylabel("Variance")
+plt.title("Variance over time")
+
+
+
 
 plt.show()

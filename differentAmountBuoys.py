@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 import skimage.feature
 import math
 import UKF_simple
-import UKF_simple_v2
+import cv2
+#import UKF_simple_v2
+import UKF_update_meas_dim
 
 
 '''
@@ -25,15 +27,17 @@ def read_blob_distance_bearing(blob_center,max_radius):
     bearing = math.atan2(v[1],v[0])
     return distance, convert_to_navigation_angle(bearing)
 
+
 """
-Make measurement on image with a given radius with only bouyes present
+Make measurement on a radar image with a given radius 
 """
-def make_measurement_perfect_data(img,max_radius):
+def make_measurement(img,max_radius,heading):
     blobs = skimage.feature.blob_dog(img,min_sigma=5,max_sigma=20,threshold=1)
     centers = [(blob[1], blob[0]) for blob in blobs]
     meassurements = []
     for center in centers:
-        distance, bearing = read_blob_distance_bearing(center,max_radius)
+        distance, bearing_rel = read_blob_distance_bearing(center,max_radius)
+        bearing = (bearing_rel + heading)%360
         meassurements.append([distance,bearing])
     return meassurements
 
@@ -118,6 +122,33 @@ def calculate_destination_point(latitude, longitude, bearing, distance):
     return lat_new_deg,lon_new_deg
 
 
+def find_buoys_meas(latitude, longitude, true_buoy_pos,measurements):
+    buoy_meas = []
+    meas_idx = []
+    for buoy in true_buoy_pos:
+        buoy_meas.append([0,0])
+        meas_idx.append(-1)
+    for i in range(len(measurements)):
+        lat_meas,lon_meas = calculate_destination_point(latitude,longitude,measurements[i][1],measurements[i][0])
+        for j in range(len(true_buoy_pos)):
+            lat_meas_diff = abs(true_buoy_pos[j][0]-lat_meas)
+            lon_meas_diff = abs(true_buoy_pos[j][1]-lon_meas)
+            lat_prev_diff = abs(true_buoy_pos[j][0]-buoy_meas[j][0])
+            lon_prev_diff = abs(true_buoy_pos[j][1]-buoy_meas[j][1])
+            if ((np.sqrt(lat_meas_diff**2+lon_meas_diff**2)<0.001) and 
+                (np.sqrt(lat_meas_diff**2+lon_meas_diff**2)<np.sqrt(lat_prev_diff**2+lon_prev_diff**2))):
+                buoy_meas[j][0] = lat_meas
+                buoy_meas[j][1] = lon_meas
+                meas_idx[j] = i
+    pop_idx = []
+    for i in range(len(meas_idx)):
+        if meas_idx[i] == -1:
+            pop_idx.append(i)
+    for i in range(len(pop_idx)):
+        buoy_meas.pop(pop_idx[i]-i)
+        meas_idx.pop(pop_idx[i]-i)
+    return buoy_meas, meas_idx
+
 def calculate_my_position(bouey_lat, bouye_lon, bearing, distance):
     # Converting to radians
     lat_rad = math.radians(bouey_lat)
@@ -151,39 +182,34 @@ def calculate_my_position(bouey_lat, bouye_lon, bearing, distance):
     lon_new_deg = math.degrees(lon_new_rad)
     return lat_new_deg,lon_new_deg
 
-# Setting up the necessary data 
-allData = pd.read_csv("dataset.csv")
-size = 65 #65 originally
-data = allData.loc[0:size-1,['timestamp','enc_data','enc_max_range','latitude','longitude','heading','target_data','max_radius']]
 
+allData = pd.read_csv("dataset.csv")
+size = 145
+data = allData.loc[0:size-1,['timestamp','image_data','latitude','longitude','xbr_max_range','heading']]
 speed_data_all = pd.read_csv("velocity.csv")
 speed_data = speed_data_all.loc[0:5*size-1,['timestamp','sog','cog']]
 
 timestamp = np.zeros([1,size])
-enc_radius = np.zeros([1,size])
+radar_im = np.zeros([500,500,size])
+xbr_radius = np.zeros([1,size])
 longitude = np.zeros([1,size])
 latitude = np.zeros([1,size])
 heading = np.zeros([1,size])
-target_radius = np.zeros([1,size])
-enc_data = np.zeros([500,500,4,size])
-target_data = np.zeros([500,500,size])
+
 sog_data = np.zeros([1,size*5])
 cog_data = np.zeros([1,size*5])
 vel_timestamp = np.zeros([1,size*5])
 
 
+
 for i, row in data.iterrows():
     timestamp[:,i] = row['timestamp']
-    enc_radius[:,i] = row['enc_max_range']
+    xbr_radius[:,i] = row['xbr_max_range']
+    radar_path = row['image_data']
+    radar_im[:,:,i] = skimage.io.imread("imageData/"+radar_path[17:])
     longitude[:,i] = row['longitude']
     latitude[:,i] = row['latitude']
     heading[:,i] = row['heading']
-    target_radius[:,i] = row['max_radius']
-    enc_path = row['enc_data']
-    enc_data[:,:,:,i] = skimage.io.imread("enc_data/"+enc_path[17:])
-    target_path = row['target_data']
-    target = np.load("/home/christian/targetData/"+target_path[29:])
-    target_data[:,:,i] = target[:,:,1]
 
 for i, row in speed_data.iterrows():
     if row['sog'] > 0:
@@ -191,54 +217,39 @@ for i, row in speed_data.iterrows():
         cog_data[:,i] = row['cog']
         vel_timestamp[:,i] = row['timestamp']
 
-'''
-plt.figure()
-plt.imshow(enc_data[:,:,1,0])
-plt.scatter(250,250)
-'''
-bouyes_pos_true =[[57+3.408/60,10+3.352/60],[57+3.257/60,10+3.384/60]] #Found on OpenSeaMap
+buoyes_pos_true =[[57+3.408/60,10+3.352/60],[57+3.257/60,10+3.384/60],[57+3.455/60,10+2.814/60],[57+3.488/60,10+2.889/60]] #Found on OpenSeaMap
 
-print(latitude[0,0],longitude[0,0],heading[0,0])
-lat2, lon2 = calculate_destination_point(latitude[0,0],longitude[0,0],heading[0,0],15)
-print(lat2-latitude[0,0],lon2-longitude[0,0],heading[0,0])
 
-#err = np.zeros([2,2,2,size])
-measurements = np.zeros([2,2,size])
-bouyes_pos_est = np.zeros([2,2,size])
-pos_est = np.zeros([2,2,size])
+kal_pos = np.zeros([2,size])
+#pos_est = np.zeros([2,2,size])
 meas_cov = np.zeros([4,4,size])
 state_cov = np.zeros([2,2,size])
 
+
 # Initialise UKF
-UKF = UKF_simple_v2.UnscentedKalmanFilter(2,4,np.array(1*np.identity(2)),np.array(0.1*np.identity(4)))
+UKF = UKF_update_meas_dim.UnscentedKalmanFilter(2,4,np.array(1*np.identity(2)),np.array(0.01*np.identity(4)))
 UKF.set_initial_state(np.array([latitude[0,0],longitude[0,0]]))
-
-measurement = make_measurement_perfect_data(enc_data[:,:,1,0],enc_radius[:,0][0])
-measurements[:,:,0] = measurement
-for j in range(len(measurement)):
-    est_pos = calculate_my_position(bouyes_pos_true[j][0],bouyes_pos_true[j][1],measurement[j][1],measurement[j][0])
-    pos_est[j,:,0] = est_pos
-UKF.set_initial_measurement(np.reshape(pos_est[:,:,0],[1,4]))
-
-kal_pos = np.zeros([2,size])
-print("Initial state")
-print(UKF.get_state())
-print(np.reshape(pos_est[:,:,0],[1,4]))
+measurement = make_measurement(radar_im[:,:,0],xbr_radius[0,0],heading[0,0])
+buoy_pos, meas_idx = find_buoys_meas(latitude[0,0],longitude[0,0],buoyes_pos_true,measurement)
+pos_est = np.zeros([len(meas_idx),2])
+for j in range(len(meas_idx)):
+    est_pos = calculate_my_position(buoyes_pos_true[j][0],buoyes_pos_true[j][1],measurement[meas_idx[j]][1],measurement[meas_idx[j]][0])
+    pos_est[j,:] = est_pos
+UKF.set_initial_measurement(np.reshape(pos_est[:,:],[1,4]))
 kal_pos[:,0] = UKF.get_state()
-#This is a simulation/film where it is plotted on what is happening
+
+
 plt.figure()
-plt.subplot(1,2,1)
-plt.subplot(1,2,2)
+
 plt.ion() # Turn on interactivity
 plt.show()
-
-vel_idx = 0
 
 meas_cov[:,:,0] = UKF.get_measurement_covariance()
 state_cov[:,:,0] = UKF.get_state_covariance()
 
+vel_idx = 0
 for i in range(1,size):
-    print("round: ",i)
+    print(i)
     min_time_diff = abs(timestamp[0,i] - vel_timestamp[0,vel_idx])
     for j in range(vel_idx+1,5*size):
         if vel_timestamp[0,j] == 0:
@@ -248,71 +259,40 @@ for i in range(1,size):
             vel_idx = j
         else:
             break
+    print("idx",vel_idx)
     vel_ms = sog_data[0,vel_idx]*1.852/3.6
     head_cog = cog_data[0,vel_idx]
+    print("delta time",timestamp[0,i]-timestamp[0,i-1])
+    print("vel",vel_ms)
+    print("cog",head_cog)
     UKF.time_update(timestamp[0,i]-timestamp[0,i-1],vel_ms,head_cog)
-    measurement = make_measurement_perfect_data(enc_data[:,:,1,i],enc_radius[:,i][0])
-    measurements[:,:,i] = measurement
-    for j in range(len(measurement)):
-        est_pos = calculate_my_position(bouyes_pos_true[j][0],bouyes_pos_true[j][1],measurement[j][1],measurement[j][0])
-        #est_pos1 = calculate_my_position(bouyes_pos_true[1][0],bouyes_pos_true[1][1],measurement[j][1],measurement[j][0])
-        #err[j,0,0,i] = est_pos0[0]-latitude[0,i]
-        #err[j,0,1,i] = est_pos0[1]-longitude[0,i]
-        #err[j,1,0,i] = est_pos1[0]-latitude[0,i]
-        #err[j,1,1,i] = est_pos1[1]-longitude[0,i]
-        #err[j,0,0,i] = est_pos0[0] - bouyes_pos_true[0][0]
-        #err[j,0,1,i] = est_pos0[1] - bouyes_pos_true[0][1]
-        #err[j,1,0,i] = est_pos0[0] - bouyes_pos_true[1][0]
-        #err[j,1,1,i] = est_pos0[1] - bouyes_pos_true[1][1]
-        #bouyes_pos_est[j,:,i] = est_pos0
-        pos_est[j,:,i] = est_pos
-    UKF.measurement_update(np.reshape(pos_est[:,:,i],[1,4]))
+    measurement = make_measurement(radar_im[:,:,i],xbr_radius[0,i],heading[0,i])
+    kal_pos[:,i] = UKF.get_state()
+    #buoy_pos, meas_idx = find_buoys_meas(latitude[0,i],longitude[0,i],buoyes_pos_true,measurement)
+    buoy_pos, meas_idx = find_buoys_meas(kal_pos[0,i],kal_pos[1,i],buoyes_pos_true,measurement)
+    if UKF.get_measurement_dim() != 2*len(meas_idx):
+        print("here")
+        UKF.update_measurement_dim(2*len(meas_idx))
+    pos_est = np.zeros([len(meas_idx),2])
+    print("Num meas: ",len(meas_idx))
+    for j in range(len(meas_idx)):
+        est_pos = calculate_my_position(buoyes_pos_true[j][0],buoyes_pos_true[j][1],measurement[meas_idx[j]][1],measurement[meas_idx[j]][0])
+        pos_est[j,:] = est_pos
+    UKF.measurement_update(np.reshape(pos_est[:,:],[1,2*len(meas_idx)]))
     kal_pos[:,i] = UKF.get_state()
     meas_cov[:,:,i] = UKF.get_measurement_covariance()
     state_cov[:,:,i] = UKF.get_state_covariance()
-    plt.clf()
-    plt.subplot(1,2,1)
-    plt.imshow(enc_data[:,:,:,i].astype(int))
-    plt.scatter(250,250)
-    plt.subplot(1,2,2)
-    plt.imshow(target_data[:,:,i])
-    plt.scatter(250,250)
-    plt.draw()
-    plt.pause(0.005)
-plt.ioff() # Turns of interactivity
 
-
-''' Error plots
-plt.figure()
-plt.subplot(2,2,1)
-plt.plot(err[0,0,0,:])
-
-plt.subplot(2,2,2)
-plt.plot(err[0,0,1,:])
-
-plt.subplot(2,2,3)
-plt.plot(err[0,1,0,:])
-
-plt.subplot(2,2,4)
-plt.plot(err[0,1,1,:])
     
-plt.figure()
-plt.subplot(2,2,1)
-plt.plot(err[1,0,0,:])
-
-plt.subplot(2,2,2)
-plt.plot(err[1,0,1,:])
-
-plt.subplot(2,2,3)
-plt.plot(err[1,1,0,:])
-
-plt.subplot(2,2,4)
-plt.plot(err[1,1,1,:])
-'''
+    plt.clf()
+    plt.imshow(radar_im[:,:,i])
+    plt.draw()
+    plt.pause(0.05)
+    
 
 plt.figure()
-plt.plot(pos_est[0,1,1:],pos_est[0,0,1:],label='Est1')
-plt.plot(pos_est[1,1,1:],pos_est[1,0,1:],label='Est2')
+#plt.plot(pos_est[0,1,1:],pos_est[0,0,1:],label='Est1')
+#plt.plot(pos_est[1,1,1:],pos_est[1,0,1:],label='Est2')
 plt.plot(longitude[0,1:],latitude[0,1:],label='True')
 plt.plot(kal_pos[1,1:],kal_pos[0,1:],label="Kalman")
 plt.ylim([57.03,57.07])
@@ -322,6 +302,8 @@ plt.xlabel("Longitude")
 plt.ylabel("Latitude")
 plt.title("Position of the vessel")
 
+print(kal_pos[1,-1]-longitude[0,-1])
+print(kal_pos[0,-1]-latitude[0,-1])
 
 d_pos = np.sqrt(((kal_pos[1,size-1]-longitude[0,size-1])*60000)**2+((kal_pos[0,size-1]-latitude[0,size-1])*111000)**2)
 print("diff pos: ", d_pos)
@@ -339,32 +321,6 @@ plt.ylabel("Variance")
 plt.title("Variance over time")
 
 
-''' Plots of measurements and the estimated position of the bouyes together with the variance in the estimate
-
-plt.figure()
-plt.subplot(2,2,1)
-plt.plot(measurements[0,0,:])
-plt.subplot(2,2,2)
-plt.plot(measurements[0,1,:])
-plt.subplot(2,2,3)
-plt.plot(measurements[1,0,:])
-plt.subplot(2,2,4)
-plt.plot(measurements[1,1,:])
-
-# Try making a test with ECEF frame
-# Try changing how the projection is done
-plt.figure()
-plt.plot(bouyes_pos_est[0,1,:],bouyes_pos_est[0,0,:])
-plt.plot(bouyes_pos_est[1,1,:],bouyes_pos_est[1,0,:])
-plt.ylim([57.03,57.07])
-plt.xlim([10.04,10.08])
-
-print("Variances of estimates")
-print(np.var(bouyes_pos_est[0,1,:]),np.var(bouyes_pos_est[0,0,:]))
-print(np.var(bouyes_pos_est[1,1,:]),np.var(bouyes_pos_est[1,0,:]))
-'''
-
 
 
 plt.show()
-
